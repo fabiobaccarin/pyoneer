@@ -13,7 +13,6 @@ import pandas as pd
 import numpy as np
 from collections import abc
 from pyoneer import guards, utils
-from scipy import stats
 
 
 def pd_curve(predictor: abc.Callable, data: pd.DataFrame, feature: str,
@@ -122,8 +121,8 @@ def _delta_metric(after, before, deviation):
 def permutation_importance(X: pd.DataFrame, y: pd.Series, eval_metric: abc.Callable,
                            before_metric_val: float, permutations: int=1000,
                            pred_col: int=0, estimator: abc.Callable=np.mean,
-                           deviation: str='arithmetic',
-                           use_features: list=None) -> pd.DataFrame:
+                           deviation: str='arithmetic', use_features: list=None,
+                           long: bool=False) -> pd.DataFrame:
     ''' Calculates the permutation importance of features in a dataframe,
         according to a specified metric.
         
@@ -169,13 +168,22 @@ def permutation_importance(X: pd.DataFrame, y: pd.Series, eval_metric: abc.Calla
             List of features' names in X to apply the exercise. If `None`, the
             exercise will be applied to all columns
             
+        long: bool, default False
+            Indicates that the output should be returned in 'long' format. If
+            `True`, the result is a `pandas.DataFrame` with two columns and
+            n x `permutations` rows, where n is the number of columns in `X`.
+            The first column, named 'var' contains the name of the variable;
+            the second column, named 'pfi' contains the corresponding feature
+            importance value for that variable in a given permutation
+            
         Returns
         -------
         pfi: pandas.DataFrame
             Dataframe with the number of rows corresponding to the number
             of `permutations` and the same number of columns of `X`. The
             values are the PFIs corresponding to the given permutation for
-            the respective variable indicated by the column label
+            the respective variable indicated by the column label. If `long`,
+            this formatted is changed to a 'long' format (see `long`)
     '''
     
     guards.not_dataframe(X, 'X')
@@ -200,5 +208,8 @@ def permutation_importance(X: pd.DataFrame, y: pd.Series, eval_metric: abc.Calla
             values.append(_delta_metric(metric, before_metric_val, deviation))
         pfi[feature] = values
         
-    return pd.DataFrame(pfi)
+    pfi = pd.DataFrame(pfi)
+    
+    return (pfi if not long
+            else utils.DataFrameFormatter.matrix_to_long(pfi, 'pfi'))
             

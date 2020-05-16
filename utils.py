@@ -95,3 +95,48 @@ def shuffle_dataframe_column(df: pd.DataFrame, col: str) -> pd.DataFrame:
     df_new[col] = np.random.permutation(df_new[col].values)
     
     return df_new
+
+
+class DataFrameFormatter:
+    ''' Contains tools for changing the format of a pandas DataFrame '''
+    
+    @staticmethod
+    def matrix_to_long(df: pd.DataFrame, values_label: str,
+                       dtype: str='float64') -> pd.DataFrame:
+        ''' Returns the dataframe in a 'long' format, with the first column named
+            'var' indicating the variable previously on the column, and the second
+            column corresponding to the value. This column will be named
+            `values_label`
+        '''
+        
+        guards.not_dataframe(df, 'df')
+        
+        long = pd.Series(dtype=dtype, name=values_label)
+        length = len(df)
+        for var in df.columns.to_list():
+            series = pd.Series(df[var].values,
+                               index=[var for _ in range(length)],
+                               dtype=dtype, name=values_label)
+            long = pd.concat([long, series])
+            
+        return long.reset_index().rename(columns={'index': 'var'})
+    
+    @staticmethod
+    def long_to_matrix(df: pd.DataFrame, var_labels_col: str, values_col: str,
+                       dtype: str='float64') -> pd.DataFrame:
+        ''' Returns the dataframe in 'matrix' format, with k/n rows, where
+            k is the number of rows in `df` and n is the number of unique
+            values in column `var_labels_col`. The number of columns in the
+            output is equal to n also.
+        '''
+        
+        guards.not_dataframe(df, 'df')
+        
+        cols = df[var_labels_col].unique().tolist()
+        matrix = pd.DataFrame(columns=cols)
+        
+        for var in cols:
+            matrix[var] = (df.query(f'{var_labels_col} == "{var}"')[values_col]
+                           .reset_index(drop=True))
+            
+        return matrix
