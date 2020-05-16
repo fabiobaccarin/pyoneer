@@ -120,10 +120,10 @@ def _delta_metric(after, before, deviation):
 
 
 def permutation_importance(X: pd.DataFrame, y: pd.Series, eval_metric: abc.Callable,
-                           before_metric_val: float, permutations: int=100,
+                           before_metric_val: float, permutations: int=1000,
                            pred_col: int=0, estimator: abc.Callable=np.mean,
-                           deviation: str='arithmetic', use_features: list=None,
-                           ci: float=95.0) -> pd.DataFrame:
+                           deviation: str='arithmetic',
+                           use_features: list=None) -> pd.DataFrame:
     ''' Calculates the permutation importance of features in a dataframe,
         according to a specified metric.
         
@@ -145,7 +145,7 @@ def permutation_importance(X: pd.DataFrame, y: pd.Series, eval_metric: abc.Calla
             Previous value of the evaluation metric. That is, the value of the
             evaluation metric before permutation
             
-        permutations: int, default 100
+        permutations: int, default 1000
             Number of permutations to perform for each feature
             
         pred_col: int, default 0
@@ -169,20 +169,13 @@ def permutation_importance(X: pd.DataFrame, y: pd.Series, eval_metric: abc.Calla
             List of features' names in X to apply the exercise. If `None`, the
             exercise will be applied to all columns
             
-        ci: float, default 95.0
-            Confidence interval to be computed for the aggregate measure chosen
-            in `estimator`
-        
         Returns
         -------
         pfi: pandas.DataFrame
             Dataframe with the number of rows corresponding to the number
-            of columns of `data` and a number of columns. The first column is the
-            name of the feature; the second its corresponding feature importance
-            as measured by the permutation method (PFI value). After them
-            follow columns containing uncertainty measures about the PFI
-            estimate, such as the standard deviation, the median absolute
-            deviation etc.
+            of `permutations` and the same number of columns of `X`. The
+            values are the PFIs corresponding to the given permutation for
+            the respective variable indicated by the column label
     '''
     
     guards.not_dataframe(X, 'X')
@@ -190,10 +183,8 @@ def permutation_importance(X: pd.DataFrame, y: pd.Series, eval_metric: abc.Calla
     guards.not_callable(eval_metric, 'eval_metric')
     guards.not_callable(estimator, 'estimator')
     guards.not_in_supported_values(deviation, ['arithmetic', 'multiplicative'])
-    guards.is_none(ci, 'ci')
         
     pfi = {}
-    ci_prob = (100.0 - ci) / 2.0
     
     if use_features is not None:
         guards.not_iterable(use_features, 'use_features')    
@@ -207,15 +198,7 @@ def permutation_importance(X: pd.DataFrame, y: pd.Series, eval_metric: abc.Calla
             X_permut = utils.shuffle_dataframe_column(X, feature)
             metric = eval_metric(X_permut, y)
             values.append(_delta_metric(metric, before_metric_val, deviation))
-        pfi[feature] = {'PFI': estimator(values),
-                        'STD': np.std(values),
-                        'IQR': stats.iqr(values),
-                        'MAD': stats.median_absolute_deviation(values),
-                        f'CI_{ci}_lower_bound': np.quantile(values, ci_prob/100.0)
-                                                if ci is not None else np.nan,
-                        f'CI_{ci}_upper_bound': np.quantile(values, (100.0-ci_prob)/100.0)
-                                                if ci is not None else np.nan}
+        pfi[feature] = values
         
-    return (pd.DataFrame.from_dict(pfi, orient='index')
-            .reset_index().rename(columns={'index': 'feature'}))
+    return pd.DataFrame(pfi)
             
