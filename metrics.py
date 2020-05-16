@@ -283,6 +283,39 @@ def mev(X: pd.DataFrame) -> pd.DataFrame:
     return matrix
 
 
+def _vif(r2: float) -> float:
+    ''' Returns the variance inflator factor (VIF) '''
+    
+    return 1/(1 - r2)
+
+
+def vif(X: pd.DataFrame) -> pd.Series:
+    ''' Returns the Variance Inflator Factor (VIF) for all variables in X
+        
+        Parameters
+        ----------
+        X: pandas.DataFrame
+            Matrix of attributes
+            
+        Returns
+        -------
+        pandas.Series
+            VIF vector for all columns in X
+    '''
+    
+    guards.not_dataframe(X, 'X')
+    
+    results = {}
+    reg = LinearRegression()
+    
+    for col in X.columns.to_list():
+        others = X.drop(columns=col)
+        r_sq = reg.fit(others, X[col]).score(others, X[col])
+        results[col] = _vif(r_sq)
+            
+    return pd.Series(results, name='vif')
+
+
 def cramerV(x, y):
     ''' Cramér's V association statistic
     
