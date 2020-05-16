@@ -316,7 +316,7 @@ def vif(X: pd.DataFrame) -> pd.Series:
     return pd.Series(results, name='vif')
 
 
-def cramerV(x, y):
+def cramerV(x: pd.Series, y: pd.Series) -> float:
     ''' Cramér's V association statistic
     
         Parameters
