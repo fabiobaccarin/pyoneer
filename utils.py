@@ -10,6 +10,7 @@ import pandas as pd
 from collections import abc
 from pyoneer import guards
 
+
 def make_score(predictor: abc.Callable, X, good_score: bool=True) -> np.array:
     ''' Returns a vector of scores in the range 0-1000 (integer)
     
