@@ -12,7 +12,7 @@ humans understand complex models
 import pandas as pd
 import numpy as np
 from collections import abc
-from pyoneer import guards, utils
+from pyoneer import guards
             
 
 def deletion_diagnostics(data: pd.DataFrame, y_col: str, base_metric: float,
