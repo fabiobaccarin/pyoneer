@@ -40,18 +40,11 @@ def ks(predictor: abc.Callable, X, y) -> float:
     
     guards.not_callable(predictor, 'predictor')
 
-    scores = predictor(X)[:, 1]
-    score_table = pd.crosstab(scores, y)
-    goods = score_table.iloc[:, 0].values
-    bads = score_table.iloc[:, 1].values
-    total_goods = sum(goods)
-    total_bads = sum(bads)
-    table_size = len(score_table)
-    goods_distr = [np.cumsum(goods)[i] / total_goods for i in range(table_size)]
-    bads_distr = [np.cumsum(bads)[i] / total_bads for i in range(table_size)]
-    diff = [abs(goods_distr[i] - bads_distr[i]) for i in range(table_size)]
+    scores = pd.crosstab(predictor(X)[:, 1], y)
+    for col in [0, 1]:
+        scores[col] = scores[col].cumsum() / scores[col].sum()
 
-    return max(diff) * 100
+    return (scores[0] - scores[1]).max() * 100
 
 
 def mev(X: pd.DataFrame) -> pd.DataFrame:
