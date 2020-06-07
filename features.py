@@ -46,8 +46,19 @@ def skewness(X: pd.DataFrame, size: int, samples: int=1000) -> pd.DataFrame:
 
 
 class PValue:
-    """ Calculates p-values for variables to use for feature selection in
-        classification problems
+    """ Calculates p-values for variables to use for feature selection and
+        ranking. It uses the following conventions:
+            1. If the response is categorical and the predictor is also
+               categorical, the p-value refers to the result of a Fisher's
+               exact test
+            2. If the response is categorical and the predictor is continuous,
+               the p-value refers to the result of a Welch test where the
+               null hypothesis is that the mean value of the predictor is
+               the same for both classes of the response
+            3. If the response is continuous and the predictor is categorical,
+               the p-value refers to the result of a Welch test where the
+               null hypothesis is that the mean value of the response is the
+               same in both classes of the predictor
     
         Parameters
         ----------
@@ -122,6 +133,8 @@ class PValue:
         guards.not_dataframe(X, 'X')
         guards.not_series(y, 'y')
         guards.not_iterable(catvars, 'catvars')
+        if catvars == [] and not y_categorical:
+            raise ValueError('Cannot compute for continuous variables only. Either y must be categorical or some column in X must be listed in `catvars`')
         
         self._cols = X.columns.to_list()
         
