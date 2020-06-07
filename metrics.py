@@ -11,7 +11,7 @@ Metrics module
 
 import pandas as pd
 import numpy as np
-from pyoneer import guards, utils
+from pyoneer import guards
 from collections import abc
 from sklearn.linear_model import LinearRegression
 from scipy import stats
@@ -40,7 +40,7 @@ def ks(predictor: abc.Callable, X, y) -> float:
     
     guards.not_callable(predictor, 'predictor')
 
-    scores = utils.make_score(predictor, X, good_score=False)
+    scores = predictor(X)[:, 1]
     score_table = pd.crosstab(scores, y)
     goods = score_table.iloc[:, 0].values
     bads = score_table.iloc[:, 1].values
