@@ -21,3 +21,5 @@ NOT_IN_SUPPORTED_VALUES = '{} is not in the list of supported values: {}'
 IS_NONE = "You must set a value for '{}'. It cannot be None"
 
 NOT_ITERABLE = "Object '{}' is not iterable"
+
+NOT_INT = "Object '{}' is not of type `int`"

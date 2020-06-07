@@ -63,3 +63,8 @@ def not_iterable(obj, name) -> None:
     
     if not isinstance(obj, abc.Iterable):
         raise TypeError(errors.NOT_ITERABLE.format(name))
+
+        
+def not_int(obj, name) -> None:
+    if not isinstance(obj, int):
+        raise TypeError(errors.NOT_INT.format(name))
