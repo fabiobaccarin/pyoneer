@@ -31,7 +31,7 @@ def skewness(X: pd.DataFrame, size: int, samples: int=1000) -> pd.DataFrame:
             
         Returns
         -------
-        skew: pandas.DataFrame
+        pandas.DataFrame
             Dataframe containing the skewness statistic for every bootstrapped
             sample generated, for each feature in X. It has shape (samples, k),
             where k is the number of columns in X
@@ -41,12 +41,8 @@ def skewness(X: pd.DataFrame, size: int, samples: int=1000) -> pd.DataFrame:
     guards.not_int(size, 'size')
     guards.not_int(samples, 'samples')
     
-    skew = pd.DataFrame()
-
-    for _ in range(samples):
-        skew = pd.concat([skew, X.sample(size).skew()], axis=1)
-    
-    return skew.T.reset_index(drop=True)
+    return pd.DataFrame([X.sample(size, replace=True).skew().T
+                         for _ in range(samples)])
 
 
 class PValue:
@@ -77,11 +73,11 @@ class PValue:
         odds_ratio: pandas.Series
             Odds ratios used in tests
         
-        pvalues: pandas.Series
+        pvalue: pandas.Series
             P-values for variables in X. The variable names are the indexes
             of the series
             
-        pvalues_ci: pandas.DataFrame
+        pvalue_ci: pandas.DataFrame
             P-values for variables in X with bootstrapped confidence intervals
     """
     
@@ -121,6 +117,17 @@ class PValue:
     def _diff_means(self, X: pd.Series, y: pd.Series) -> float:
         return X[y == 1].mean() - X[y == 0].mean()
         
+    def _setup(self, X: pd.DataFrame, y: pd.Series, y_categorical: bool,
+               catvars: list) -> None:
+        guards.not_dataframe(X, 'X')
+        guards.not_series(y, 'y')
+        guards.not_iterable(catvars, 'catvars')
+        
+        self._cols = X.columns.to_list()
+        
+        self.y_categorical = y_categorical
+        self.catvars = catvars
+    
     def fit(self, X: pd.DataFrame, y: pd.Series, y_categorical: bool,
             catvars: list=[]) -> None:
         """ Fits to the attribute matrix X and response y
@@ -142,23 +149,73 @@ class PValue:
                 encoded as dummy variables
         """
         
-        guards.not_dataframe(X, 'X')
-        guards.not_series(y, 'y')
-        guards.not_iterable(catvars, 'catvars')
+        self._setup(X, y, y_categorical, catvars)
         
-        cols = X.columns.to_list()
+        self.pvalue = X.apply(self._pvalue, args=(y,))
+        self.pvalue.name = 'pvalue'
         
-        self.y_categorical = y_categorical
-        self.catvars = catvars
-        
-        self.pvalue = pd.Series({col: self._pvalue(X[col], y) for col in cols},
-                                name='pvalue')
-        
-        self.diff_means = pd.Series({col: self._diff_means(X[col], y)
-                                     for col in cols
-                                     if self._cont_cat_pair(col)}, name='diff_means')
+        self.diff_means = (X[[col for col in self._cols
+                             if self._cont_cat_pair(col)]]
+                           .apply(self._diff_means, args=(y,)))
+        self.diff_means.name = 'diff_means'
         
         if self.catvars != []:
-            self.odds_ratio = pd.Series({col: self._odds_ratio(X[col], y)
-                                         for col in self.catvars
-                                         if self.y_categorical}, name='odds_ratio')
+            self.odds_ratio = (X[[col for col in self.catvars
+                                 if self.y_categorical]]
+                               .apply(self._odds_ratio, args=(y,)))
+            self.odds_ratio.name = 'odds_ratio'
+
+
+    def fit_ci(self, X: pd.DataFrame, y: pd.Series, y_categorical: bool,
+               catvars: list=[], weights: pd.Series=None) -> None:
+        """ Fits to the attribute matrix X and response y, calulating
+            confidence infervals using bootstrapping
+        
+            Parameters
+            ----------
+            X: pandas.DataFrame
+                Matrix of attributes
+                
+            y: pandas.Series
+                Vector of response (aka target, dependent variable) values to
+                use for testing hypothesis
+                
+            y_categorical: bool
+                Whether y is a categorical response
+                
+            catvars: list of str, default []
+                List of categorical variable names. They should be already
+                encoded as dummy variables
+                
+            weights: pandas.Series, default None
+                If specified, it is a vector of weights to sample. Observations
+                with higher values in this vector are more likely to be
+                sampled
+        """
+        
+        self._setup(X, y, y_categorical, catvars)
+        guards.is_none(self.size, 'size')
+        guards.is_none(self.samples, 'samples')
+        
+        vals = []
+        for s in range(self.samples):
+            X_s = X.sample(self.size, weights=weights, replace=True)
+            y_s = y[X.index]
+            vals.append(X_s[self._cols].apply(self._pvalue, args=(y_s,)).T)
+        self.pvalue_ci = pd.DataFrame(vals)
+        
+    @staticmethod
+    def scale(vals: pd.Series) -> pd.Series:
+        """ Returns the negative of the p-values in a log 10 scale
+        
+            Parameters
+            ----------
+            vals: pandas.Series
+                vector of p-values to transform
+                
+            Returns
+            -------
+            pandas.Series:
+                Transformed p-values
+        """
+        return -np.log10(vals)
