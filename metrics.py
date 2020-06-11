@@ -86,7 +86,7 @@ def mev(X: pd.DataFrame) -> pd.DataFrame:
 def _vif(r2: float) -> float:
     ''' Returns the variance inflator factor (VIF) '''
     
-    return 1/(1 - r2)
+    return 1/(1 - r2) if r2 < 1 else np.inf
 
 
 def vif(X: pd.DataFrame) -> pd.Series:
@@ -131,7 +131,7 @@ def cramerV(x: pd.Series, y: pd.Series) -> float:
     '''
     
     confusion_matrix = pd.crosstab(x, y)
-    chi2 = stats.chi2_contingency(confusion_matrix)[0]
+    chi2 = ss.chi2_contingency(confusion_matrix)[0]
     n = confusion_matrix.sum().sum()
     phi2 = chi2 / n
     r, k = confusion_matrix.shape
@@ -165,8 +165,8 @@ class Associator:
         else:
             r, pval = ss.spearmanr(var1, var2)
         return r, pval
-        
-    def assoc_matrix(self, df: pd.DataFrame) -> pd.DataFrame:
+    
+    def corr(self, df: pd.DataFrame) -> pd.DataFrame:
         cols = df.columns.to_list()
         matrix = pd.DataFrame({k: np.nan for k in cols}, index=cols)
         for i in cols:
@@ -209,6 +209,6 @@ class Associator:
         corr = X.corr(method='spearman').abs()
         for r in np.sort(np.linspace(0, self.corr_cutoff))[::-1]:
             X_new = self._corr_filter(X, corr, r, rk)
-            vif = metrics.vif(X_new).max()
+            vif = vif(X_new).max()
             if vif < self.vif_cutoff:
                 return X_new
