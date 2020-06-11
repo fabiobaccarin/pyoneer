@@ -150,11 +150,11 @@ def yule_q(odds_ratio: float) -> float:
 
 class Associator:
     
-    def __init__(self, catvars: list, corr_cutoff: float=.75,
+    def __init__(self, catvars: list, assoc_cutoff: float=.75,
                  vif_cutoff: float=5.0, pval_cutoff: float=.99,
-                 too_good_to_be_true: float=1.0):
+                 too_good_to_be_true: float=.99):
         self.catvars = catvars
-        self.corr_cutoff = corr_cutoff
+        self.assoc_cutoff = assoc_cutoff
         self.vif_cutoff = vif_cutoff
         self.pval_cutoff = pval_cutoff
         self.too_good_to_be_true = too_good_to_be_true
@@ -196,27 +196,35 @@ class Associator:
                          and corr.at[i, j] > cutoff])
         return X[keep]
     
-    def rank(self, X: pd.DataFrame, y: pd.Series) -> pd.DataFrame:
-        data = {'assoc': [], 'p_value': [], '-log10(p_value)': []}
+    def rank(self, X: pd.DataFrame, y: pd.Series,
+             apply_cutoffs: bool=True) -> pd.DataFrame:
+        data = {'assoc': [], 'pvalue': [], '-log10(pvalue)': []}
         cols = X.columns.to_list()
         for var in cols:
             r, pval = self.assoc(X[var], y)
             pval2 = -np.log10(pval)
             data['assoc'].append(r)
-            data['p_value'].append(pval)
-            data['-log10(p_value)'].append(pval2)
+            data['pvalue'].append(pval)
+            data['-log10(pvalue)'].append(pval2)
         df = pd.DataFrame(data, index=cols)
+        if apply_cutoffs:
+            pval_filter = df['pvalue'] < self.pval_cutoff
+            too_good_filter = df['assoc'].abs() < self.too_good_to_be_true
+            df = df[pval_filter & too_good_filter]
         df['rank'] = df['assoc'].abs().rank(ascending=False, method='dense')
+        
         return df
     
     def filter(self, df: pd.DataFrame, y_col: str) -> pd.DataFrame:
         X = df.drop(columns=y_col)
         y = df[y_col]
         rk_ = self.rank(X, y)
-        rk_ = rk_[rk_['p_value'] < self.pval_cutoff]
+        pval_filter = rk_['p_value'] < self.pval_cutoff
+        too_good_filter = rk_['assoc'].abs() < self.too_good_to_be_true
+        rk_ = rk_[pval_filter & too_good_filter]
         rk = rk_['rank'].sort_values().index.to_list()
         corr = X.corr(method='spearman').abs()
-        for r in np.sort(np.linspace(0, self.corr_cutoff))[::-1]:
+        for r in np.sort(np.linspace(0, self.assoc_cutoff))[::-1]:
             X_new = self._corr_filter(X, corr, r, rk)
             v = vif(X_new).max()
             if v < self.vif_cutoff:
