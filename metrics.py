@@ -11,9 +11,7 @@ Metrics module
 
 import pandas as pd
 import numpy as np
-import warnings
 from pyoneer import guards
-from pyoneer import warnings as w
 from collections import abc
 from sklearn.linear_model import LinearRegression
 from scipy import stats as ss
@@ -148,60 +146,190 @@ def yule_q(odds_ratio: float) -> float:
     return (odds_ratio - 1) / (odds_ratio + 1)
 
 
-class Associator:
+class PValue:
+    """ Calculates p-values for variables to use for feature selection and
+        ranking. It uses the following conventions:
+            1. If the response is categorical and the predictor is also
+               categorical, the p-value refers to the result of a Fisher's
+               exact test
+            2. If the response is categorical and the predictor is continuous,
+               the p-value refers to the result of a Welch test where the
+               null hypothesis is that the mean value of the predictor is
+               the same for both classes of the response
+            3. If the response is continuous and the predictor is categorical,
+               the p-value refers to the result of a Welch test where the
+               null hypothesis is that the mean value of the response is the
+               same in both classes of the predictor
     
-    def __init__(self, catvars: list, assoc_cutoff: float=.75,
-                 vif_cutoff: float=5.0, pval_cutoff: float=.99,
-                 too_good_to_be_true: float=.99):
+        Parameters
+        ----------
+        size: int, default None
+            Size of samples to use for bootstrapping
+            
+        samples: int, default None
+            Number of repetitions of bootstrap to perform
+            
+        Attributes
+        ----------
+        
+        y_type: str, ('continous', 'categorical')
+            Type of response variable
+            
+        catvars: list of str
+            List of variables that should be treated as categorical/dummy
+            variables
+            
+        diff_means: pandas.Series
+            Difference in means used in tests
+            
+        odds_ratio: pandas.Series
+            Odds ratios used in tests
+        
+        pvalue: pandas.Series
+            P-values for variables in X. The variable names are the indexes
+            of the series
+            
+        pvalue_ci: pandas.DataFrame
+            P-values for variables in X with bootstrapped confidence intervals
+    """
+    
+    def __init__(self, size: int=None, samples: int=None):
+        self.size = size
+        self.samples = samples
+    
+    def _cat_cat_pair(self, x: str) -> bool:
+        return x in self.catvars and self.y_categorical
+    
+    def _cont_cat_pair(self, x: str) -> bool:
+        return x not in self.catvars and self.y_categorical
+    
+    def _cat_cont_pair(self, x: str) -> bool:
+        return x in self.catvars and not self.y_categorical
+    
+    def _fisher_exact(self, X: pd.Series, y: pd.Series) -> (float, float):
+        return ss.fisher_exact(pd.crosstab(X, y))
+    
+    def _welch(self, X: pd.Series, y: pd.Series) -> (float, float):
+        return ss.ttest_ind(X[y == 0], X[y == 1], equal_var=False)
+    
+    def _pvalue(self, X: pd.Series, y: pd.Series) -> float:
+        if self._cat_cat_pair(X.name):
+            _, p = self._fisher_exact(X, y)
+        elif self._cont_cat_pair(X.name):
+            _, p = self._welch(X, y)
+        elif self._cat_cont_pair(X.name):
+            _, p = self._welch(y, X)
+        
+        return p
+    
+    def _odds_ratio(self, X: pd.Series, y: pd.Series) -> float:
+        tab = pd.crosstab(X, y)
+        return np.prod(np.diag(tab)) / np.prod(np.diag(np.fliplr(tab)))
+    
+    def _diff_means(self, X: pd.Series, y: pd.Series) -> float:
+        return X[y == 1].mean() - X[y == 0].mean()
+        
+    def _setup(self, X: pd.DataFrame, y: pd.Series, y_categorical: bool,
+               catvars: list) -> None:
+        guards.not_dataframe(X, 'X')
+        guards.not_series(y, 'y')
+        guards.not_iterable(catvars, 'catvars')
+        if catvars == [] and not y_categorical:
+            raise ValueError('Cannot compute for continuous variables only. Either y must be categorical or some column in X must be listed in `catvars`')
+        
+        self._cols = X.columns.to_list()
+        
+        self.y_categorical = y_categorical
         self.catvars = catvars
-        self.assoc_cutoff = assoc_cutoff
-        self.vif_cutoff = vif_cutoff
-        self.pval_cutoff = pval_cutoff
-        self.too_good_to_be_true = too_good_to_be_true
+    
+    def fit(self, X: pd.DataFrame, y: pd.Series, y_categorical: bool,
+            catvars: list=[]) -> None:
+        """ Fits to the attribute matrix X and response y
         
-    def _catcat(self, x: str, y: str) -> bool:
-        return x in self.catvars and y in self.catvars
-    
-    def assoc(self, var1: pd.Series, var2: pd.Series) -> (float, float):
-        try:
-            if self._catcat(var1.name, var2.name):
-                odds_ratio, pval = ss.fisher_exact(pd.crosstab(var1, var2))
-                r = yule_q(odds_ratio)        
-            else:
-                r, pval = ss.spearmanr(var1, var2)
-            return r, pval
-        except ValueError:
-            warnings.warn(w.ASSOC_WARNING.format(var1.name, var2.name),
-                          RuntimeWarning)
-            return np.nan, np.nan
-    
-    def corr(self, df: pd.DataFrame) -> pd.DataFrame:
-        cols = df.columns.to_list()
-        matrix = pd.DataFrame({k: np.nan for k in cols}, index=cols)
-        for i in cols:
-            matrix.at[i, i] = 1
-            for j in cols:
-                if cols.index(i) < cols.index(j):
-                    r = self.assoc(df[i], df[j])[0]
-                    matrix.at[i, j] = r
-                    matrix.at[j, i] = r
-        return matrix
-    
-    def rank(self, X: pd.DataFrame, y: pd.Series,
-             apply_cutoffs: bool=True) -> pd.DataFrame:
-        data = {'assoc': [], 'pvalue': [], '-log10(pvalue)': []}
-        cols = X.columns.to_list()
-        for var in cols:
-            r, pval = self.assoc(X[var], y)
-            pval2 = -np.log10(pval)
-            data['assoc'].append(r)
-            data['pvalue'].append(pval)
-            data['-log10(pvalue)'].append(pval2)
-        df = pd.DataFrame(data, index=cols)
-        if apply_cutoffs:
-            pval_filter = df['pvalue'] < self.pval_cutoff
-            too_good_filter = df['assoc'].abs() < self.too_good_to_be_true
-            df = df[pval_filter & too_good_filter]
-        df['rank'] = df['assoc'].abs().rank(ascending=False, method='dense')
+            Parameters
+            ----------
+            X: pandas.DataFrame
+                Matrix of attributes
+                
+            y: pandas.Series
+                Vector of response (aka target, dependent variable) values to
+                use for testing hypothesis
+                
+            y_categorical: bool
+                Whether y is a categorical response
+                
+            catvars: list of str, default []
+                List of categorical variable names. They should be already
+                encoded as dummy variables
+        """
         
-        return df
+        self._setup(X, y, y_categorical, catvars)
+        
+        self.pvalue = X.apply(self._pvalue, args=(y,))
+        self.pvalue.name = 'pvalue'
+        
+        self.diff_means = (X[[col for col in self._cols
+                             if self._cont_cat_pair(col)]]
+                           .apply(self._diff_means, args=(y,)))
+        self.diff_means.name = 'diff_means'
+        
+        if self.catvars != []:
+            self.odds_ratio = (X[[col for col in self.catvars
+                                 if self.y_categorical]]
+                               .apply(self._odds_ratio, args=(y,)))
+            self.odds_ratio.name = 'odds_ratio'
+
+
+    def fit_ci(self, X: pd.DataFrame, y: pd.Series, y_categorical: bool,
+               catvars: list=[], weights: pd.Series=None) -> None:
+        """ Fits to the attribute matrix X and response y, calulating
+            confidence infervals using bootstrapping
+        
+            Parameters
+            ----------
+            X: pandas.DataFrame
+                Matrix of attributes
+                
+            y: pandas.Series
+                Vector of response (aka target, dependent variable) values to
+                use for testing hypothesis
+                
+            y_categorical: bool
+                Whether y is a categorical response
+                
+            catvars: list of str, default []
+                List of categorical variable names. They should be already
+                encoded as dummy variables
+                
+            weights: pandas.Series, default None
+                If specified, it is a vector of weights to sample. Observations
+                with higher values in this vector are more likely to be
+                sampled
+        """
+        
+        self._setup(X, y, y_categorical, catvars)
+        guards.is_none(self.size, 'size')
+        guards.is_none(self.samples, 'samples')
+        
+        vals = []
+        for s in range(self.samples):
+            X_s = X.sample(self.size, weights=weights, replace=True)
+            y_s = y[X.index]
+            vals.append(X_s[self._cols].apply(self._pvalue, args=(y_s,)).T)
+        self.pvalue_ci = pd.DataFrame(vals)
+        
+    @staticmethod
+    def scale(vals: pd.Series) -> pd.Series:
+        """ Returns the negative of the p-values in a log 10 scale
+        
+            Parameters
+            ----------
+            vals: pandas.Series
+                vector of p-values to transform
+                
+            Returns
+            -------
+            pandas.Series:
+                Transformed p-values
+        """
+        return -np.log10(vals)

@@ -57,7 +57,8 @@ def is_none(val, name) -> None:
     
     if val is None:
         raise ValueError(errors.IS_NONE.format(name))
-        
+
+
 def not_iterable(obj, name) -> None:
     ''' Raise a `TypeError` if `obj` is not iterable'''
     

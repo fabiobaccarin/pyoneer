@@ -11,225 +11,518 @@ engineering algorithms
 
 import numpy as np
 import pandas as pd
-from pyoneer import guards
+import warnings
+from pyoneer import guards, metrics
+from pyoneer.base import CorrBasedSelectorMixin
+from pyoneer import warn_messages as w
 from scipy import stats as ss
 
 
-class SpearmanCorrSelector:
+class OptimalMeasureSelector(CorrBasedSelectorMixin):
+    ''' Optimal measure correlation-based feature selection class. "Optimal"
+        means that the measure chosen as a correlation coefficient depends
+        on the type of the variables in the pair. Essentially, this class
+        treats pairs of categorical variables differently from the other
+        three pairs possible (continuous-continuous, continuous-categorical
+        and categorical-continuous). If the pair correspond to only categorical
+        variables, the measure chosen as correlation coefficient is the
+        Yule's Q (see the `metrics` module for more details). For the other
+        cases, the measure is the Spearman correlation coefficient
     
-    def __init__(self, corr_cutoff: float=.75, pval_cutoff: float=1.0):
-        self.corr_cutoff = corr_cutoff
-        self.pval_cutoff = pval_cutoff
-        
-    def _corr_filter(self, X: pd.DataFrame, corr: pd.DataFrame,
-                     cutoff: float, ranking: list) -> pd.DataFrame:
-        keep = set(ranking)
-        for i in ranking:
-            keep -= set([j for j in ranking
-                         if ranking.index(i) < ranking.index(j)
-                         and corr.at[i, j] > cutoff])
-        return X[keep]
-    
-    def filter(self, df: pd.DataFrame, y_col: str) -> pd.DataFrame:
-        X = df.drop(columns=y_col)
-        y = df[y_col]
-        rk_ = self.rank(X, y)
-        pval_filter = rk_['p_value'] < self.pval_cutoff
-        too_good_filter = rk_['assoc'].abs() < self.too_good_to_be_true
-        rk_ = rk_[pval_filter & too_good_filter]
-        rk = rk_['rank'].sort_values().index.to_list()
-        corr = X.corr(method='spearman').abs()
-        for r in np.sort(np.linspace(0, self.assoc_cutoff))[::-1]:
-            X_new = self._corr_filter(X, corr, r, rk)
-            v = vif(X_new).max()
-            if v < self.vif_cutoff:
-                return X_new
-
-
-class PValue:
-    """ Calculates p-values for variables to use for feature selection and
-        ranking. It uses the following conventions:
-            1. If the response is categorical and the predictor is also
-               categorical, the p-value refers to the result of a Fisher's
-               exact test
-            2. If the response is categorical and the predictor is continuous,
-               the p-value refers to the result of a Welch test where the
-               null hypothesis is that the mean value of the predictor is
-               the same for both classes of the response
-            3. If the response is continuous and the predictor is categorical,
-               the p-value refers to the result of a Welch test where the
-               null hypothesis is that the mean value of the response is the
-               same in both classes of the predictor
-    
-        Parameters
-        ----------
-        size: int, default None
-            Size of samples to use for bootstrapping
-            
-        samples: int, default None
-            Number of repetitions of bootstrap to perform
-            
         Attributes
         ----------
-        
-        y_type: str, ('continous', 'categorical')
-            Type of response variable
-            
         catvars: list of str
-            List of variables that should be treated as categorical/dummy
-            variables
+            List of attribute names which are to be considered categorical
+            variables. Every variable that is not in this list will be deemed
+            continuous
+        
+        corr_cutoff: float, default 0.75
+            Value above which two features should be considered pathologically
+            correlated (i.e. redundant)
             
-        diff_means: pandas.Series
-            Difference in means used in tests
+        pval_cutoff: float, default 1.0
+            Value above which the p-value associated with the correlation
+            measure should be considered as evidence in favor of the null
+            hypothesis (there is no correlation). Note that this cut-off is
+            not a statistical significance test. It is intended to be used
+            as a measure of uncertainty regarding the estimated value of its
+            associated correlation coefficient
             
-        odds_ratio: pandas.Series
-            Odds ratios used in tests
-        
-        pvalue: pandas.Series
-            P-values for variables in X. The variable names are the indexes
-            of the series
-            
-        pvalue_ci: pandas.DataFrame
-            P-values for variables in X with bootstrapped confidence intervals
-    """
+        too_good_to_be_true: float, default 0.99
+            Value above which all correlation should be considered too good
+            to be true. It is used when ranking features based on a target
+            (aka dependent variable or response). This parameter calibrates
+            for considering features "too good to be true" for predicting
+            the target
+    '''
     
-    def __init__(self, size: int=None, samples: int=None):
-        self.size = size
-        self.samples = samples
-    
-    def _cat_cat_pair(self, x: str) -> bool:
-        return x in self.catvars and self.y_categorical
-    
-    def _cont_cat_pair(self, x: str) -> bool:
-        return x not in self.catvars and self.y_categorical
-    
-    def _cat_cont_pair(self, x: str) -> bool:
-        return x in self.catvars and not self.y_categorical
-    
-    def _fisher_exact(self, X: pd.Series, y: pd.Series) -> (float, float):
-        return ss.fisher_exact(pd.crosstab(X, y))
-    
-    def _welch(self, X: pd.Series, y: pd.Series) -> (float, float):
-        return ss.ttest_ind(X[y == 0], X[y == 1], equal_var=False)
-    
-    def _pvalue(self, X: pd.Series, y: pd.Series) -> float:
-        if self._cat_cat_pair(X.name):
-            _, p = self._fisher_exact(X, y)
-        elif self._cont_cat_pair(X.name):
-            _, p = self._welch(X, y)
-        elif self._cat_cont_pair(X.name):
-            _, p = self._welch(y, X)
-        
-        return p
-    
-    def _odds_ratio(self, X: pd.Series, y: pd.Series) -> float:
-        tab = pd.crosstab(X, y)
-        return np.prod(np.diag(tab)) / np.prod(np.diag(np.fliplr(tab)))
-    
-    def _diff_means(self, X: pd.Series, y: pd.Series) -> float:
-        return X[y == 1].mean() - X[y == 0].mean()
-        
-    def _setup(self, X: pd.DataFrame, y: pd.Series, y_categorical: bool,
-               catvars: list) -> None:
-        guards.not_dataframe(X, 'X')
-        guards.not_series(y, 'y')
-        guards.not_iterable(catvars, 'catvars')
-        if catvars == [] and not y_categorical:
-            raise ValueError('Cannot compute for continuous variables only. Either y must be categorical or some column in X must be listed in `catvars`')
-        
-        self._cols = X.columns.to_list()
-        
-        self.y_categorical = y_categorical
+    def __init__(self, catvars: list, corr_cutoff: float=.75,
+                 pval_cutoff: float=1.0, too_good_to_be_true: float=.99):
         self.catvars = catvars
-    
-    def fit(self, X: pd.DataFrame, y: pd.Series, y_categorical: bool,
-            catvars: list=[]) -> None:
-        """ Fits to the attribute matrix X and response y
+        super().__init__(corr_cutoff, pval_cutoff, too_good_to_be_true)
         
+    def _catcat(self, x: str, y: str) -> bool:
+        ''' Returns `True` if both variables x and y must be considered
+            categorical
+            
             Parameters
             ----------
-            X: pandas.DataFrame
-                Matrix of attributes
-                
-            y: pandas.Series
-                Vector of response (aka target, dependent variable) values to
-                use for testing hypothesis
-                
-            y_categorical: bool
-                Whether y is a categorical response
-                
-            catvars: list of str, default []
-                List of categorical variable names. They should be already
-                encoded as dummy variables
-        """
-        
-        self._setup(X, y, y_categorical, catvars)
-        
-        self.pvalue = X.apply(self._pvalue, args=(y,))
-        self.pvalue.name = 'pvalue'
-        
-        self.diff_means = (X[[col for col in self._cols
-                             if self._cont_cat_pair(col)]]
-                           .apply(self._diff_means, args=(y,)))
-        self.diff_means.name = 'diff_means'
-        
-        if self.catvars != []:
-            self.odds_ratio = (X[[col for col in self.catvars
-                                 if self.y_categorical]]
-                               .apply(self._odds_ratio, args=(y,)))
-            self.odds_ratio.name = 'odds_ratio'
-
-
-    def fit_ci(self, X: pd.DataFrame, y: pd.Series, y_categorical: bool,
-               catvars: list=[], weights: pd.Series=None) -> None:
-        """ Fits to the attribute matrix X and response y, calulating
-            confidence infervals using bootstrapping
-        
-            Parameters
-            ----------
-            X: pandas.DataFrame
-                Matrix of attributes
-                
-            y: pandas.Series
-                Vector of response (aka target, dependent variable) values to
-                use for testing hypothesis
-                
-            y_categorical: bool
-                Whether y is a categorical response
-                
-            catvars: list of str, default []
-                List of categorical variable names. They should be already
-                encoded as dummy variables
-                
-            weights: pandas.Series, default None
-                If specified, it is a vector of weights to sample. Observations
-                with higher values in this vector are more likely to be
-                sampled
-        """
-        
-        self._setup(X, y, y_categorical, catvars)
-        guards.is_none(self.size, 'size')
-        guards.is_none(self.samples, 'samples')
-        
-        vals = []
-        for s in range(self.samples):
-            X_s = X.sample(self.size, weights=weights, replace=True)
-            y_s = y[X.index]
-            vals.append(X_s[self._cols].apply(self._pvalue, args=(y_s,)).T)
-        self.pvalue_ci = pd.DataFrame(vals)
-        
-    @staticmethod
-    def scale(vals: pd.Series) -> pd.Series:
-        """ Returns the negative of the p-values in a log 10 scale
-        
-            Parameters
-            ----------
-            vals: pandas.Series
-                vector of p-values to transform
+            x: str
+                Name of the first variable in the pair
+            
+            y: str
+                Name of the second variable in the pair
                 
             Returns
             -------
-            pandas.Series:
-                Transformed p-values
-        """
-        return -np.log10(vals)
+            bool:
+                Whether x and y are both to be considered categorical variables
+        '''
+        
+        return x in self.catvars and y in self.catvars
+    
+    def assoc(self, var1: pd.Series, var2: pd.Series) -> (float, float):
+        ''' Calculates the optimal correlation measure for the pair of
+            variables var1 and var2, according to the rules on the class
+            description
+            
+            Parameters
+            ----------
+            var1: pandas.Series
+                Vector of values of the first variable
+                
+            var2: pandas.Series
+                Vector of values of the second variable
+                
+            Returns
+            -------
+            r: float
+                The value of the correlation coefficient estimated
+                
+            pval: float
+                The p-value associated with the estimative. The null hypothesis
+                considered is that the correlation is zero
+        '''
+        
+        guards.not_series(var1, 'var1')
+        guards.not_series(var2, 'var2')
+        
+        try:
+            if self._catcat(var1.name, var2.name):
+                odds_ratio, pval = ss.fisher_exact(pd.crosstab(var1, var2))
+                r = metrics.yule_q(odds_ratio)        
+            else:
+                r, pval = ss.spearmanr(var1, var2)
+            return r, pval
+        except ValueError:
+            warnings.warn(w.ASSOC_WARNING.format(var1.name, var2.name),
+                          RuntimeWarning)
+            return np.nan, np.nan
+    
+    def corr(self, df: pd.DataFrame) -> pd.DataFrame:
+        ''' Calculates a correlation matrix for df with the method on the
+            class description. It mimics the behavior of `pandas.DataFrame.corr`
+            method
+            
+            Parameters
+            ----------
+            df: pandas.DataFrame
+                Matrix for which to calculate all pairwise correlations
+                
+            Returns
+            -------
+            matrix: pandas.DataFrame
+                Square matrix corresponding to the correlation matrix of
+                every variable (column) in df. It is a symmetric matrix, with
+                only 1 on its main diagonal
+        '''
+        
+        guards.not_dataframe(df, 'df')
+        
+        cols = df.columns.to_list()
+        matrix = pd.DataFrame({k: np.nan for k in cols}, index=cols)
+        for i in cols:
+            matrix.at[i, i] = 1
+            for j in cols:
+                if cols.index(i) < cols.index(j):
+                    r = self.assoc(df[i], df[j])[0]
+                    matrix.at[i, j] = r
+                    matrix.at[j, i] = r
+        return matrix
+    
+    def rank(self, X: pd.DataFrame, y: pd.Series,
+             apply_cutoffs: bool=True) -> pd.DataFrame:
+        ''' Ranks attributes (columns) in X according to its correlation with
+            the target y
+            
+            Parameters
+            ----------
+            X: pandas.DataFrame
+                Matrix of attributes whose columns are to be ranked according
+                to their correlation with y
+                
+            y: pandas.Series
+                Vector of response measures (aka dependent variable or target)
+                to use for ranking features
+                
+            apply_cutoffs: bool, default True
+                Whether to apply the cut-offs associated if the object during
+                ranking. See the documentation on the class attributes for
+                more information on these
+                
+            Returns
+            -------
+            df: pandas.DataFrame
+                Dataframe containing 4 columns and n rows, where rows is at
+                most the number of columns in X. The first column is the
+                association measure (`assoc`), the second and third its
+                associated p-value and the fourth is the ranking of the
+                variable, where the number 1 indicates the best one, the
+                number 2 the second-best and so on
+        '''
+        
+        return super().rank(X, y, apply_cutoffs)
+    
+    def fit(self, X: pd.DataFrame, y: pd.Series,
+            apply_cutoffs: bool=True, ranking: list=None) -> pd.DataFrame:
+        ''' Applies correlation-based feature selection for a attribute
+            matrix X and a response vector y
+            
+            Parameters
+            ----------
+            X: pandas.DataFrame
+                Matrix of attributes whose columns are to be ranked according
+                to their correlation with y
+                
+            y: pandas.Series
+                Vector of response measures (aka dependent variable or target)
+                to use for ranking features
+                
+            apply_cutoffs: bool, default True
+                Whether to apply the cut-offs associated if the object during
+                ranking. See the documentation on the class attributes for
+                more information on these
+            
+            ranking: list of str, default None
+                List of variable names that will be used as a ranking. When
+                doing the filtering, this method will always drop the variable
+                in the pair that comes AFTER the other one in this list. This
+                means that the first item of this list should be the most
+                important variable (ranked 1), the second should be the
+                second most important variable (ranked 2) and so on. If no
+                such list is provided, one is created using the `rank` method
+                of this class
+                
+            Returns
+            -------
+            X_new: pandas.DataFrame
+                Dataframe with the columns in X which were deemed not
+                pathologically correlated with any of the others. It has
+                the same number of rows as X
+        '''
+        
+        return super().fit(X, y, apply_cutoffs, ranking)
+
+
+class SpearmanCorrSelector(CorrBasedSelectorMixin):
+    ''' Correlation-based feature selection using Spearman's correlation
+        coefficient
+    
+        Attributes
+        ----------
+        corr_cutoff: float, default 0.75
+            Value above which two features should be considered pathologically
+            correlated (i.e. redundant)
+            
+        pval_cutoff: float, default 1.0
+            Value above which the p-value associated with the correlation
+            measure should be considered as evidence in favor of the null
+            hypothesis (there is no correlation). Note that this cut-off is
+            not a statistical significance test. It is intended to be used
+            as a measure of uncertainty regarding the estimated value of its
+            associated correlation coefficient
+            
+        too_good_to_be_true: float, default 0.99
+            Value above which all correlation should be considered too good
+            to be true. It is used when ranking features based on a target
+            (aka dependent variable or response). This parameter calibrates
+            for considering features "too good to be true" for predicting
+            the target
+    '''
+    
+    def __init__(self, corr_cutoff: float=.75, pval_cutoff: float=1.0,
+                 too_good_to_be_true: float=.99):
+        super().__init__(corr_cutoff, pval_cutoff, too_good_to_be_true)
+    
+    def assoc(self, var1: pd.Series, var2: pd.Series) -> (float, float):
+        ''' Calculates Spearman's correlation coefficient for the pair
+            of variables var1 and var2
+            
+            Parameters
+            ----------
+            var1: pandas.Series
+                Vector of values of the first variable
+                
+            var2: pandas.Series
+                Vector of values of the second variable
+                
+            Returns
+            -------
+            r: float
+                The value of the correlation coefficient estimated
+                
+            pval: float
+                The p-value associated with the estimative. The null hypothesis
+                considered is that the correlation is zero. As stated in the
+                Scipy documentation, this value should only be trusted
+                for sample sizes of at least 500 observations
+        '''
+        
+        return ss.spearmanr(var1, var2)
+    
+    def corr(self, df: pd.DataFrame) -> pd.DataFrame:
+        ''' Calculates a correlation matrix for df with the method on the
+            class description. It mimics the behavior of `pandas.DataFrame.corr`
+            method
+            
+            Parameters
+            ----------
+            df: pandas.DataFrame
+                Matrix for which to calculate all pairwise correlations
+                
+            Returns
+            -------
+            matrix: pandas.DataFrame
+                Square matrix corresponding to the correlation matrix of
+                every variable (column) in df. It is a symmetric matrix, with
+                only 1 on its main diagonal
+        '''
+        
+        return df.corr('spearman')
+
+    def rank(self, X: pd.DataFrame, y: pd.Series,
+             apply_cutoffs: bool=True) -> pd.DataFrame:
+        ''' Ranks attributes (columns) in X according to its correlation with
+            the target y
+            
+            Parameters
+            ----------
+            X: pandas.DataFrame
+                Matrix of attributes whose columns are to be ranked according
+                to their correlation with y
+                
+            y: pandas.Series
+                Vector of response measures (aka dependent variable or target)
+                to use for ranking features
+                
+            apply_cutoffs: bool, default True
+                Whether to apply the cut-offs associated if the object during
+                ranking. See the documentation on the class attributes for
+                more information on these
+                
+            Returns
+            -------
+            df: pandas.DataFrame
+                Dataframe containing 4 columns and n rows, where rows is at
+                most the number of columns in X. The first column is the
+                association measure (`assoc`), the second and third its
+                associated p-value and the fourth is the ranking of the
+                variable, where the number 1 indicates the best one, the
+                number 2 the second-best and so on
+        '''
+        
+        return super().rank(X, y, apply_cutoffs)
+    
+    def fit(self, X: pd.DataFrame, y: pd.Series,
+            apply_cutoffs: bool=True, ranking: list=None) -> pd.DataFrame:
+        ''' Applies correlation-based feature selection for a attribute
+            matrix X and a response vector y
+            
+            Parameters
+            ----------
+            X: pandas.DataFrame
+                Matrix of attributes whose columns are to be ranked according
+                to their correlation with y
+                
+            y: pandas.Series
+                Vector of response measures (aka dependent variable or target)
+                to use for ranking features
+                
+            apply_cutoffs: bool, default True
+                Whether to apply the cut-offs associated if the object during
+                ranking. See the documentation on the class attributes for
+                more information on these
+            
+            ranking: list of str, default None
+                List of variable names that will be used as a ranking. When
+                doing the filtering, this method will always drop the variable
+                in the pair that comes AFTER the other one in this list. This
+                means that the first item of this list should be the most
+                important variable (ranked 1), the second should be the
+                second most important variable (ranked 2) and so on. If no
+                such list is provided, one is created using the `rank` method
+                of this class
+                
+            Returns
+            -------
+            X_new: pandas.DataFrame
+                Dataframe with the columns in X which were deemed not
+                pathologically correlated with any of the others. It has
+                the same number of rows as X
+        '''
+        
+        return super().fit(X, y, apply_cutoffs, ranking)
+
+
+class VIFSelector(CorrBasedSelectorMixin):
+    ''' Selection of features based on the Variance Inflation Factor (VIF).
+        For more details, se the metrics module
+        
+        Attributes
+        ----------
+        vif_cutoff: float, default 5.0
+            VIF value above which the variable is considered multicollinear
+        
+        corr_cutoff: float, default 0.75
+            Value above which two features should be considered pathologically
+            correlated (i.e. redundant)
+            
+        pval_cutoff: float, default 1.0
+            Value above which the p-value associated with the correlation
+            measure should be considered as evidence in favor of the null
+            hypothesis (there is no correlation). Note that this cut-off is
+            not a statistical significance test. It is intended to be used
+            as a measure of uncertainty regarding the estimated value of its
+            associated correlation coefficient
+            
+        too_good_to_be_true: float, default 0.99
+            Value above which all correlation should be considered too good
+            to be true. It is used when ranking features based on a target
+            (aka dependent variable or response). This parameter calibrates
+            for considering features "too good to be true" for predicting
+            the target
+    '''
+    
+    def __init__(self, vif_cutoff: float=5.0, corr_cutoff: float=.75,
+                 pval_cutoff: float=1.0, too_good_to_be_true: float=.99):
+        self.vif_cutoff = vif_cutoff
+        super().__init__(corr_cutoff, pval_cutoff, too_good_to_be_true)
+        
+    def assoc(self, var1: pd.Series, var2: pd.Series) -> (float, float):
+        ''' Calculates Pearson's correlation coefficient for the pair
+            of variables var1 and var2
+            
+            Parameters
+            ----------
+            var1: pandas.Series
+                Vector of values of the first variable
+                
+            var2: pandas.Series
+                Vector of values of the second variable
+                
+            Returns
+            -------
+            r: float
+                The value of the correlation coefficient estimated
+                
+            pval: float
+                The p-value associated with the estimative. The null hypothesis
+                considered is that the correlation is zero
+        '''
+        
+        return ss.pearsonr(var1, var2)
+        
+    def corr(self, df: pd.DataFrame) -> pd.DataFrame:
+        return df.corr('pearson')
+    
+    def rank(self, X: pd.DataFrame, y: pd.Series,
+             apply_cutoffs: bool=True) -> pd.DataFrame:
+        ''' Ranks attributes (columns) in X according to its correlation with
+            the target y. It uses Pearson's correlation coefficient
+            
+            Parameters
+            ----------
+            X: pandas.DataFrame
+                Matrix of attributes whose columns are to be ranked according
+                to their correlation with y
+                
+            y: pandas.Series
+                Vector of response measures (aka dependent variable or target)
+                to use for ranking features
+                
+            apply_cutoffs: bool, default True
+                Whether to apply the cut-offs associated if the object during
+                ranking. See the documentation on the class attributes for
+                more information on these
+                
+            Returns
+            -------
+            df: pandas.DataFrame
+                Dataframe containing 4 columns and n rows, where rows is at
+                most the number of columns in X. The first column is the
+                association measure (`assoc`), the second and third its
+                associated p-value and the fourth is the ranking of the
+                variable, where the number 1 indicates the best one, the
+                number 2 the second-best and so on
+        '''
+        
+        return super().rank(X, y, apply_cutoffs)
+    
+    def _stop(self, X: pd.DataFrame) -> bool:
+        ''' Stop condition of the fit algorithm
+        
+            Parameters
+            ----------
+            X: pandas.DataFrame
+                Matrix of attributes being evaluated
+                
+            Returns
+            -------
+            bool:
+                Whether the maximum VIF value for variables in X is
+                less than the cut-off specified when instantiating the object
+        '''
+        
+        guards.not_dataframe(X, 'X')
+        
+        return metrics.vif(X).max() < self.vif_cutoff
+    
+    def fit(self, X: pd.DataFrame, y: pd.Series,
+            apply_cutoffs: bool=True, ranking: list=None) -> pd.DataFrame:
+        ''' Applies VIF-based feature selection for a attribute
+            matrix X and a response vector y
+            
+            Parameters
+            ----------
+            X: pandas.DataFrame
+                Matrix of attributes whose columns are to be ranked according
+                to their correlation with y
+                
+            y: pandas.Series
+                Vector of response measures (aka dependent variable or target)
+                to use for ranking features
+                
+            apply_cutoffs: bool, default True
+                Whether to apply the cut-offs associated if the object during
+                ranking. See the documentation on the class attributes for
+                more information on these
+            
+            ranking: list of str, default None
+                List of variable names that will be used as a ranking. When
+                doing the filtering, this method will always drop the variable
+                in the pair that comes AFTER the other one in this list. This
+                means that the first item of this list should be the most
+                important variable (ranked 1), the second should be the
+                second most important variable (ranked 2) and so on. If no
+                such list is provided, one is created using the `rank` method
+                of this class
+                
+            Returns
+            -------
+            X_new: pandas.DataFrame
+                Dataframe with the columns in X which were deemed not
+                pathologically correlated with any of the others. It has
+                the same number of rows as X
+        '''
+        
+        return super().fit(X, y, apply_cutoffs, ranking)
