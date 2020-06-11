@@ -526,3 +526,125 @@ class VIFSelector(CorrBasedSelectorMixin):
         '''
         
         return super().fit(X, y, apply_cutoffs, ranking)
+    
+
+class LowVarianceSelector:
+    ''' Class for identifying and systematically remove low variance
+        features. It relies on two basic measures: the percentage of distinct
+        values of a variable relative to the sample size (number of rows of a
+        dataframe), and the ratio between the frequencies of the two most
+        frequent values of a variable. A third measure, which is a combination
+        of the previous two, is the low variance index. It is defined as the
+        log10 of the ratio between the frequency ratio and the percentage of
+        distinct values. The greater the frequency ratio, the lower the
+        variance; the higher the percentange of distinct values, the lower the
+        variance.
+        
+        Attributes
+        ----------
+        pct_distinct_cutoff: float, default 0.10
+            Value below which the percentage of distinct values in a variable
+            is considered as proof of low variance
+            
+        freq_ratio_cutoff: float, default 20.0
+            Value above which the ratio of the two most frequent values in a
+            variable is considered as proof of low variance
+    '''
+    
+    def __init__(self, pct_distinct_cutoff: float=.10,
+                 freq_ratio_cutoff: float=20.0):
+        self.pct_distinct_cutoff = pct_distinct_cutoff
+        self.freq_ratio_cutoff = freq_ratio_cutoff
+        
+    @staticmethod
+    def pct_distinct(X: pd.DataFrame) -> pd.Series:
+        ''' Calculates the percentage of distinct values relative to the sample
+            size (number of rows) for every column in X
+            
+            Parameters
+            ----------
+            X: pandas.DataFrame
+                Dataframe to evaluate
+                
+            Returns
+            -------
+            pct: pandas.Series
+                Series of resulting values
+        '''
+        
+        guards.not_dataframe(X, 'X')
+        
+        pct = X.apply(lambda sr: len(sr.value_counts()) / X.shape[0])
+        pct.name = 'pct_distinct'
+        
+        return pct
+    
+    @staticmethod
+    def freq_ratio(X: pd.DataFrame) -> pd.Series:
+        ''' Calculates the ratio between the two most frequent values in a
+            variable for every column in X
+            
+            Parameters
+            ----------
+            X: pandas.DataFrame
+                Dataframe to evaluate
+                
+            Returns
+            -------
+            pandas.Series
+                Series of resulting values
+        '''
+        
+        guards.not_dataframe(X, 'X')
+        
+        freq_ratio_ = {}
+        for var in X.columns.to_list():
+            vcount = X[var].value_counts()
+            freq_ratio_[var] = vcount.iloc[0] / vcount.iloc[1]
+            
+        return pd.Series(freq_ratio_, name='freq_ratio')
+        
+    def rank(self, X: pd.DataFrame, apply_cutoffs: bool=False) -> pd.DataFrame:
+        ''' Creates a ranking of low variance variables, from the ones with
+            least variance to the ones with most variance. Therefore, the
+            variable with rank equals to 1 is the variable with least variance
+            among those in X
+            
+            Parameters
+            ----------
+            X: pandas.DataFrame
+                Attribute matrix
+                
+            apply_cutoffs: bool, default False
+                Whether to apply the cut-offs specified during the
+                inicialization of the object. It is recommended not to apply
+                the cut-offs without first evaluating the low variance index
+                (LVI), because variables with few values can be still be useful
+                as categorical features
+                
+            Returns
+            -------
+            df: pandas.DataFrame
+                Dataframe containing 3 columns and n <= k rows, where k is
+                the number of columns in X. The first columns is the percentage
+                of distinct values relative to the sample size (`pct_distinct`).
+                The second column is the ratio between the frequencies of the
+                two most frequent values (`freq_ratio`). The third is the
+                low variance index (LVI), which is the logaritm (base 10) of
+                the ratio between `freq_ratio` and `pct_distinct`
+        '''
+        
+        guards.not_dataframe(X, 'X')
+        
+        df = pd.concat([self.pct_distinct(X), self.freq_ratio(X)], axis=1)
+        
+        if apply_cutoffs:
+            pct_filter = df['pct_distinct'] < self.pct_distinct_cutoff
+            freq_filter = df['freq_ratio'] > self.freq_ratio_cutoff
+            df = df[pct_filter & freq_filter]
+        
+        df['lvi'] = np.log10(df['freq_ratio'] / df['pct_distinct'])
+        df['rank'] = df['lvi'].rank(ascending=False, method='dense')
+        
+        return df
+        
