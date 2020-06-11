@@ -11,7 +11,9 @@ Metrics module
 
 import pandas as pd
 import numpy as np
+import warnings
 from pyoneer import guards
+from pyoneer import warnings as w
 from collections import abc
 from sklearn.linear_model import LinearRegression
 from scipy import stats as ss
@@ -148,23 +150,30 @@ def yule_q(odds_ratio: float) -> float:
 
 class Associator:
     
-    def __init__(self, corr_cutoff: float, pval_cutoff: float,
-                 vif_cutoff: float, catvars: list):
+    def __init__(self, catvars: list, corr_cutoff: float=.75,
+                 vif_cutoff: float=5.0, pval_cutoff: float=.99,
+                 too_good_to_be_true: float=1.0):
+        self.catvars = catvars
         self.corr_cutoff = corr_cutoff
         self.vif_cutoff = vif_cutoff
         self.pval_cutoff = pval_cutoff
-        self.catvars = catvars
+        self.too_good_to_be_true = too_good_to_be_true
         
     def _catcat(self, x: str, y: str) -> bool:
         return x in self.catvars and y in self.catvars
     
     def assoc(self, var1: pd.Series, var2: pd.Series) -> (float, float):
-        if self._catcat(var1.name, var2.name):
-            odds_ratio, pval = ss.fisher_exact(pd.crosstab(var1, var2))
-            r = self._yule_q(odds_ratio)        
-        else:
-            r, pval = ss.spearmanr(var1, var2)
-        return r, pval
+        try:
+            if self._catcat(var1.name, var2.name):
+                odds_ratio, pval = ss.fisher_exact(pd.crosstab(var1, var2))
+                r = yule_q(odds_ratio)        
+            else:
+                r, pval = ss.spearmanr(var1, var2)
+            return r, pval
+        except ValueError:
+            warnings.warn(w.ASSOC_WARNING.format(var1.name, var2.name),
+                          RuntimeWarning)
+            return np.nan, np.nan
     
     def corr(self, df: pd.DataFrame) -> pd.DataFrame:
         cols = df.columns.to_list()
@@ -209,6 +218,6 @@ class Associator:
         corr = X.corr(method='spearman').abs()
         for r in np.sort(np.linspace(0, self.corr_cutoff))[::-1]:
             X_new = self._corr_filter(X, corr, r, rk)
-            vif = vif(X_new).max()
-            if vif < self.vif_cutoff:
+            v = vif(X_new).max()
+            if v < self.vif_cutoff:
                 return X_new
