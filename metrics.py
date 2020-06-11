@@ -14,7 +14,7 @@ import numpy as np
 from pyoneer import guards
 from collections import abc
 from sklearn.linear_model import LinearRegression
-from scipy import stats
+from scipy import stats as ss
 
 
 def ks(predictor: abc.Callable, X, y) -> float:
@@ -140,3 +140,75 @@ def cramerV(x: pd.Series, y: pd.Series) -> float:
     kcorr = k - ((k-1)**2)/(n-1)
     
     return np.sqrt(phi2corr / min((kcorr-1), (rcorr-1)))
+
+
+def yule_q(odds_ratio: float) -> float:
+    return (odds_ratio - 1) / (odds_ratio + 1)
+
+
+class Associator:
+    
+    def __init__(self, corr_cutoff: float, pval_cutoff: float,
+                 vif_cutoff: float, catvars: list):
+        self.corr_cutoff = corr_cutoff
+        self.vif_cutoff = vif_cutoff
+        self.pval_cutoff = pval_cutoff
+        self.catvars = catvars
+        
+    def _catcat(self, x: str, y: str) -> bool:
+        return x in self.catvars and y in self.catvars
+    
+    def assoc(self, var1: pd.Series, var2: pd.Series) -> (float, float):
+        if self._catcat(var1.name, var2.name):
+            odds_ratio, pval = ss.fisher_exact(pd.crosstab(var1, var2))
+            r = self._yule_q(odds_ratio)        
+        else:
+            r, pval = ss.spearmanr(var1, var2)
+        return r, pval
+        
+    def assoc_matrix(self, df: pd.DataFrame) -> pd.DataFrame:
+        cols = df.columns.to_list()
+        matrix = pd.DataFrame({k: np.nan for k in cols}, index=cols)
+        for i in cols:
+            matrix.at[i, i] = 1
+            for j in cols:
+                if cols.index(i) < cols.index(j):
+                    r = self.assoc(df[i], df[j])[0]
+                    matrix.at[i, j] = r
+                    matrix.at[j, i] = r
+        return matrix
+    
+    def _corr_filter(self, X: pd.DataFrame, corr: pd.DataFrame,
+                     cutoff: float, ranking: list) -> pd.DataFrame:
+        keep = set(ranking)
+        for i in ranking:
+            keep -= set([j for j in ranking
+                         if ranking.index(i) < ranking.index(j)
+                         and corr.at[i, j] > cutoff])
+        return X[keep]
+    
+    def rank(self, X: pd.DataFrame, y: pd.Series) -> pd.DataFrame:
+        data = {'assoc': [], 'p_value': [], '-log10(p_value)': []}
+        cols = X.columns.to_list()
+        for var in cols:
+            r, pval = self.assoc(X[var], y)
+            pval2 = -np.log10(pval)
+            data['assoc'].append(r)
+            data['p_value'].append(pval)
+            data['-log10(p_value)'].append(pval2)
+        df = pd.DataFrame(data, index=cols)
+        df['rank'] = df['assoc'].abs().rank(ascending=False, method='dense')
+        return df
+    
+    def filter(self, df: pd.DataFrame, y_col: str) -> pd.DataFrame:
+        X = df.drop(columns=y_col)
+        y = df[y_col]
+        rk_ = self.rank(X, y)
+        rk_ = rk_[rk_['p_value'] < self.pval_cutoff]
+        rk = rk_['rank'].sort_values().index.to_list()
+        corr = X.corr(method='spearman').abs()
+        for r in np.sort(np.linspace(0, self.corr_cutoff))[::-1]:
+            X_new = self._corr_filter(X, corr, r, rk)
+            vif = metrics.vif(X_new).max()
+            if vif < self.vif_cutoff:
+                return X_new
