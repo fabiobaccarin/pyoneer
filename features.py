@@ -14,6 +14,38 @@ import pandas as pd
 from pyoneer import guards
 from scipy import stats as ss
 
+
+class SpearmanCorrSelector:
+    
+    def __init__(self, corr_cutoff: float=.75, pval_cutoff: float=1.0):
+        self.corr_cutoff = corr_cutoff
+        self.pval_cutoff = pval_cutoff
+        
+    def _corr_filter(self, X: pd.DataFrame, corr: pd.DataFrame,
+                     cutoff: float, ranking: list) -> pd.DataFrame:
+        keep = set(ranking)
+        for i in ranking:
+            keep -= set([j for j in ranking
+                         if ranking.index(i) < ranking.index(j)
+                         and corr.at[i, j] > cutoff])
+        return X[keep]
+    
+    def filter(self, df: pd.DataFrame, y_col: str) -> pd.DataFrame:
+        X = df.drop(columns=y_col)
+        y = df[y_col]
+        rk_ = self.rank(X, y)
+        pval_filter = rk_['p_value'] < self.pval_cutoff
+        too_good_filter = rk_['assoc'].abs() < self.too_good_to_be_true
+        rk_ = rk_[pval_filter & too_good_filter]
+        rk = rk_['rank'].sort_values().index.to_list()
+        corr = X.corr(method='spearman').abs()
+        for r in np.sort(np.linspace(0, self.assoc_cutoff))[::-1]:
+            X_new = self._corr_filter(X, corr, r, rk)
+            v = vif(X_new).max()
+            if v < self.vif_cutoff:
+                return X_new
+
+
 class PValue:
     """ Calculates p-values for variables to use for feature selection and
         ranking. It uses the following conventions:
