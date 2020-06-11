@@ -14,37 +14,6 @@ import pandas as pd
 from pyoneer import guards
 from scipy import stats as ss
 
-def skewness(X: pd.DataFrame, size: int, samples: int=1000) -> pd.DataFrame:
-    """ Calculates skewness for every variable (column) in X with bootstrapped
-        confidence intervals
-    
-        Parameters
-        ----------
-        X: pandas.DataFrame, pandas.Series, numpy.ndarray
-            Attribute matrix containing features' values
-            
-        size: int
-            Size of samples in the bootstrap
-            
-        samples: int, default 1000
-            Number of repetitions to perform during bootstrapping
-            
-        Returns
-        -------
-        pandas.DataFrame
-            Dataframe containing the skewness statistic for every bootstrapped
-            sample generated, for each feature in X. It has shape (samples, k),
-            where k is the number of columns in X
-    """
-    
-    guards.not_dataframe(X, 'X')
-    guards.not_int(size, 'size')
-    guards.not_int(samples, 'samples')
-    
-    return pd.DataFrame([X.sample(size, replace=True).skew().T
-                         for _ in range(samples)])
-
-
 class PValue:
     """ Calculates p-values for variables to use for feature selection and
         ranking. It uses the following conventions:
