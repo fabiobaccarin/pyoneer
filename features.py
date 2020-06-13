@@ -644,3 +644,26 @@ class LowVarianceSelector:
         
         return df
         
+def nan_pct(df: pd.DataFrame, ascending: bool=False):
+    ''' Shows feature names and their corresponding percentage of missing
+        values
+
+        Parameters
+        ----------
+        df: pandas.DataFrame
+            Dataframe with variable values
+
+        ascending: bool, default False
+            Whether to sort values in ascending order of percentage of NaNs
+
+        Returns
+        -------
+        pandas.Series:
+            Series of variable names and their corresponding percentage of
+            NaNs
+    '''
+
+    guards.not_dataframe(df, 'df')
+
+    return (df[[var for var in df.columns if df[var].isna().sum() > 0]].isna()
+        .mean().sort_values(ascending=ascending))
