@@ -1,10 +1,6 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-Created on Thu Jun 11 11:15:00 2020
-
-@author: fabiobaccarin
-
 Base classes for the package
 """
 

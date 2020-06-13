@@ -1,10 +1,6 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-Created on Sat May  2 10:43:38 2020
-
-@author: Fabio Baccarin
-
 Guards
 """
 

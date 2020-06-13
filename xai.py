@@ -1,10 +1,6 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-Created on Sat May  9 08:36:11 2020
-
-@author: Fabio Baccarin
-
 Explainable Artificial Inteligence (XAI) module. Contains tools that help
 humans understand complex models
 """

@@ -1,10 +1,6 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-Created on Thu Jun 11 08:27:26 2020
-
-@author: fabiobaccarin
-
 Module for warning messages
 """
 

@@ -1,10 +1,6 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-Created on Sat May  2 10:47:11 2020
-
-@author: Fabio Baccarin
-
 Errors
 """
 
