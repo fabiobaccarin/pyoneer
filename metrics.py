@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
-"""
+'''
 Metrics module
-"""
+'''
 
 
 import pandas as pd
@@ -13,14 +13,14 @@ from sklearn.linear_model import LinearRegression
 from scipy import stats as ss
 
 
-def ks(predictor: abc.Callable, X, y) -> float:
+def ks(classifier: abc.Callable, X, y) -> float:
     ''' Returns the Kolmogorov-Smirnov (KS) statistic
     
         Parameters
         ----------
-        predictor: abc.Callable
-            Any object that can be used as a function to use data to predict an
-            outcome
+        classifier: model
+            Any object that has either a `decision_function` or a 
+            `predict_proba` method
             
         X: numpy.ndarray, pandas.DataFrame
             Attribute matrix used by `predictor` to make predictions about an
@@ -36,7 +36,11 @@ def ks(predictor: abc.Callable, X, y) -> float:
     
     guards.not_callable(predictor, 'predictor')
 
-    scores = pd.crosstab(predictor(X)[:, 1], y)
+    if hasattr(classifier, 'predict_proba'):
+        scores = pd.crosstab(classifier.predict_proba(X)[:, 1], y)
+    else:
+        scores = pd.crosstab(classifier.decision_function(X), y)
+    
     for col in [0, 1]:
         scores[col] = scores[col].cumsum() / scores[col].sum()
 
