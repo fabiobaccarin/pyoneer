@@ -300,4 +300,4 @@ class PValue:
         
         guards.not_series(pvals, 'pvals')
         
-        return -np.log10(vals)
+        return -np.log10(pvals)
