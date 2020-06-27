@@ -1,5 +1,3 @@
-#!/usr/bin/env python3
-# -*- coding: utf-8 -*-
 """
 Module for feature processing. Includes feature selection and feature
 engineering algorithms
@@ -114,8 +112,10 @@ class OptimalMeasureSelector(CorrBasedSelectorMixin):
                 r, pval = ss.spearmanr(var1, var2)
             return r, pval
         except ValueError:
-            warnings.warn(w.ASSOC_WARNING.format(var1.name, var2.name),
-                          RuntimeWarning)
+            warnings.warn(
+                w.ASSOC_WARNING.format(var1.name, var2.name),
+                RuntimeWarning
+            )
             return np.nan, np.nan
     
     def corr(self, df: pd.DataFrame) -> pd.DataFrame:

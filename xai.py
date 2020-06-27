@@ -1,5 +1,3 @@
-#!/usr/bin/env python3
-# -*- coding: utf-8 -*-
 """
 Explainable Artificial Inteligence (XAI) module. Contains tools that help
 humans understand complex models
