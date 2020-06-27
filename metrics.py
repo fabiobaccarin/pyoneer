@@ -34,8 +34,6 @@ def ks(classifier: abc.Callable, X, y) -> float:
         float: value of Kolmogorov-Smirnov statistic
     '''
     
-    guards.not_callable(predictor, 'predictor')
-
     if hasattr(classifier, 'predict_proba'):
         scores = pd.crosstab(classifier.predict_proba(X)[:, 1], y)
     else:
