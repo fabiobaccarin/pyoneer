@@ -5,16 +5,19 @@ Explainable Artificial Inteligence (XAI) module. Contains tools that help
 humans understand complex models
 """
 
+import typing as t
 import pandas as pd
 import numpy as np
-from collections import abc
 from pyoneer import guards
+from pyoneer import type_aliases as ta
             
 
 def deletion_diagnostics(data: pd.DataFrame, y_col: str, base_metric: float,
-                         learner, fit: abc.Callable, predict: abc.Callable,
-                         aggfunc: abc.Callable=np.mean,
-                         deviation: str='arithmetic') -> pd.DataFrame:
+        learner: t.Any,
+        fit: t.Callable[[t.Any, ta.Matrix, t.Optional[ta.Vector]], t.Any],
+        predict: t.Callable[[t.Any, ta.Matrix], ta.Vector],
+        aggfunc: t.Callable[[ta.Vector], float],
+        deviation: t.Optional[str]='arithmetic') -> pd.DataFrame:
     ''' Performs deletion diagnostics for the specified model. It computes
         the difference in predicted values, aggregated according to a specified
         aggregation function
@@ -36,18 +39,15 @@ def deletion_diagnostics(data: pd.DataFrame, y_col: str, base_metric: float,
             Any object corresponding to a learner. It must be already
             initialized with desired hyperparameters values
             
-        fit: learner, X, y -> fitted
-            Fits the learner to the data. It must have the
-            following signature: learner X, y -> fitted. It must return
-            the fitted learner
+        fit: Callable[[learner, X, y], learner]
+            Fits the learner to the data. It must return the fitted learner
         
-        predict: fitted, X -> pandas.Series
-            Uses the learner for making predictions. It must
-            have the following signature: fitted, X -> pandas.Series. The
-            first argument must be the learner, supossed fitted and ready
-            to predict
+        predict: Callable[[learner, X], Union[pandas.Series, numpy.array]]
+            Uses the learner for making predictions. The first argument must be 
+            the learner, suposed fitted and ready to predict
             
-        aggfunc: callable, default np.mean
+        aggfunc: Callable[[Union[pandas.Series, numpy.array]], float], default 
+            np.mean
             Function to be used to aggregate `metric` for all data after
             predicting with deletion
         

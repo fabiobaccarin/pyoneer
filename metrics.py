@@ -4,29 +4,29 @@
 Metrics module
 '''
 
-
+import typing as t
 import pandas as pd
 import numpy as np
 from pyoneer import guards
-from collections import abc
+from pyoneer import type_aliases as ta
 from sklearn.linear_model import LinearRegression
 from scipy import stats as ss
 
 
-def ks(classifier: abc.Callable, X, y) -> float:
+def ks(classifier: t.Any, X: ta.Matrix, y: ta.Vector) -> float:
     ''' Returns the Kolmogorov-Smirnov (KS) statistic
     
         Parameters
         ----------
-        classifier: model
+        classifier: Any
             Any object that has either a `decision_function` or a 
             `predict_proba` method
             
-        X: numpy.ndarray, pandas.DataFrame
+        X: Union[pandas.DataFrame, numpy.ndarray]
             Attribute matrix used by `predictor` to make predictions about an
             independent variable
             
-        y: numpy.array, pandas.Series
+        y: Union[pandas.Series, numpy.array]
             Vector of target values, aka independent variable
             
         Returns
@@ -114,12 +114,12 @@ def vif(X: pd.DataFrame) -> pd.Series:
     return pd.Series(results, name='vif')
 
 
-def cramerV(x: pd.Series, y: pd.Series) -> float:
+def cramerV(x: ta.Vector, y: ta.Vector) -> float:
     ''' Cramér's V association statistic
     
         Parameters
         ----------
-        x, y: numpy.array, pandas.Series
+        x, y: Union[pandas.Series, numpy.array]
             Variables whose association one wants to measure
             
         Returns
@@ -140,7 +140,7 @@ def cramerV(x: pd.Series, y: pd.Series) -> float:
     return np.sqrt(phi2corr / min((kcorr-1), (rcorr-1)))
 
 
-def odds_ratio(self, x: pd.Series, y: pd.Series) -> float:
+def odds_ratio(self, x: ta.Vector, y: ta.Vector) -> float:
     ''' Calculates the odds ratio for two categorical variables x and y. If
         x and y are both binary with values 0 and 1, let T be the contingency
         matrix of those variables (which is 2 x 2). Then the odds ratio is
@@ -149,10 +149,7 @@ def odds_ratio(self, x: pd.Series, y: pd.Series) -> float:
         
         Parameters
         ----------
-        x: pandas.Series
-            Variable
-            
-        y: pandas.Series
+        x, y: Union[pandas.Series, np.array]
             Variable
             
         Returns
@@ -186,7 +183,7 @@ class PValue:
     ''' Class grouping utilities for dealing with p-values '''
     
     @staticmethod
-    def bonferroni(pvals: pd.Series, alpha: float=.05) -> pd.Series:
+    def bonferroni(pvals: pd.Series, alpha: t.Optional[float]=.05) -> pd.Series:
         ''' Bonferroni correction for p-values
         
             Parameters
@@ -209,7 +206,7 @@ class PValue:
         return pvals < alpha/len(pvals)
     
     @staticmethod
-    def sidak(pvals: pd.Series, alpha: float=.05) -> pd.Series:
+    def sidak(pvals: pd.Series, alpha: t.Optional[float]=.05) -> pd.Series:
         ''' Sidak correction for p-values
         
             Parameters
@@ -232,7 +229,8 @@ class PValue:
         return pvals < 1 - (1 - alpha)**(1/len(pvals))
     
     @staticmethod
-    def holm_bonferroni(pvals: pd.Series, alpha: float=.05) -> pd.Series:
+    def holm_bonferroni(pvals: pd.Series, alpha: t.Optional[float]=.05
+            ) -> pd.Series:
         ''' Holm-Bonferroni correction for p-values
         
             Parameters
@@ -258,7 +256,7 @@ class PValue:
         return vals[0] < alpha/(len(pvals) - vals[1])
     
     @staticmethod
-    def holm_sidak(pvals: pd.Series, alpha: float=.05) -> pd.Series:
+    def holm_sidak(pvals: pd.Series, alpha: t.Optional[float]=.05) -> pd.Series:
         ''' Holm-Sidak correction for p-values
         
             Parameters

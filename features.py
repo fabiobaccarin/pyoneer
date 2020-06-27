@@ -5,6 +5,7 @@ Module for feature processing. Includes feature selection and feature
 engineering algorithms
 """
 
+import typing as t
 import numpy as np
 import pandas as pd
 import warnings
@@ -27,7 +28,7 @@ class OptimalMeasureSelector(CorrBasedSelectorMixin):
     
         Attributes
         ----------
-        catvars: list of str
+        catvars: Union[List[str], Tuple[str, ...]]
             List of attribute names which are to be considered categorical
             variables. Every variable that is not in this list will be deemed
             continuous
@@ -52,8 +53,10 @@ class OptimalMeasureSelector(CorrBasedSelectorMixin):
             the target
     '''
     
-    def __init__(self, catvars: list, corr_cutoff: float=.75,
-                 pval_cutoff: float=1.0, too_good_to_be_true: float=.99):
+    def __init__(self, catvars: t.Union[t.List[str], t.Tuple[str, ...]], 
+            corr_cutoff: t.Optional[float]=.75,
+            pval_cutoff: t.Optional[float]=1.0,
+            too_good_to_be_true: t.Optional[float]=.99):
         self.catvars = catvars
         super().__init__(corr_cutoff, pval_cutoff, too_good_to_be_true)
         
@@ -147,7 +150,7 @@ class OptimalMeasureSelector(CorrBasedSelectorMixin):
         return matrix
     
     def rank(self, X: pd.DataFrame, y: pd.Series,
-             apply_cutoffs: bool=True) -> pd.DataFrame:
+            apply_cutoffs: t.Optional[bool]=True) -> pd.DataFrame:
         ''' Ranks attributes (columns) in X according to its correlation with
             the target y
             
@@ -180,7 +183,9 @@ class OptimalMeasureSelector(CorrBasedSelectorMixin):
         return super().rank(X, y, apply_cutoffs)
     
     def fit(self, X: pd.DataFrame, y: pd.Series,
-            apply_cutoffs: bool=True, ranking: list=None) -> pd.DataFrame:
+            apply_cutoffs: t.Optional[bool]=True,
+            ranking: t.Union[t.List[str], t.Tuple[str, ...]]=None
+            ) -> pd.DataFrame:
         ''' Applies correlation-based feature selection for a attribute
             matrix X and a response vector y
             
@@ -199,12 +204,12 @@ class OptimalMeasureSelector(CorrBasedSelectorMixin):
                 ranking. See the documentation on the class attributes for
                 more information on these
             
-            ranking: list of str, default None
-                List of variable names that will be used as a ranking. When
-                doing the filtering, this method will always drop the variable
-                in the pair that comes AFTER the other one in this list. This
-                means that the first item of this list should be the most
-                important variable (ranked 1), the second should be the
+            ranking: Union[List[str], Tuple[str, ...]], default None
+                List or tuple of variable names that will be used as a ranking. 
+                When doing the filtering, this method will always drop the 
+                variable in the pair that comes AFTER the other one in this 
+                list. This means that the first item of this list should be the 
+                most important variable (ranked 1), the second should be the
                 second most important variable (ranked 2) and so on. If no
                 such list is provided, one is created using the `rank` method
                 of this class
@@ -246,8 +251,9 @@ class SpearmanCorrSelector(CorrBasedSelectorMixin):
             the target
     '''
     
-    def __init__(self, corr_cutoff: float=.75, pval_cutoff: float=1.0,
-                 too_good_to_be_true: float=.99):
+    def __init__(self, corr_cutoff: t.Optional[float]=.75,
+            pval_cutoff: t.Optional[float]=1.0,
+            too_good_to_be_true: t.Optional[float]=.99):
         super().__init__(corr_cutoff, pval_cutoff, too_good_to_be_true)
     
     def assoc(self, var1: pd.Series, var2: pd.Series) -> (float, float):
@@ -330,7 +336,9 @@ class SpearmanCorrSelector(CorrBasedSelectorMixin):
         return super().rank(X, y, apply_cutoffs)
     
     def fit(self, X: pd.DataFrame, y: pd.Series,
-            apply_cutoffs: bool=True, ranking: list=None) -> pd.DataFrame:
+            apply_cutoffs: t.Optional[bool]=True,
+            ranking: t.Union[t.List[str], t.Tuple[str, ...]]=None
+            ) -> pd.DataFrame:
         ''' Applies correlation-based feature selection for a attribute
             matrix X and a response vector y
             
@@ -349,12 +357,12 @@ class SpearmanCorrSelector(CorrBasedSelectorMixin):
                 ranking. See the documentation on the class attributes for
                 more information on these
             
-            ranking: list of str, default None
-                List of variable names that will be used as a ranking. When
-                doing the filtering, this method will always drop the variable
-                in the pair that comes AFTER the other one in this list. This
-                means that the first item of this list should be the most
-                important variable (ranked 1), the second should be the
+            ranking: Union[List[str], Tuple[str, ...]], default None
+                List or tuple of variable names that will be used as a ranking. 
+                When doing the filtering, this method will always drop the 
+                variable in the pair that comes AFTER the other one in this 
+                list. This means that the first item of this list should be the 
+                most important variable (ranked 1), the second should be the
                 second most important variable (ranked 2) and so on. If no
                 such list is provided, one is created using the `rank` method
                 of this class
@@ -399,8 +407,10 @@ class VIFSelector(CorrBasedSelectorMixin):
             the target
     '''
     
-    def __init__(self, vif_cutoff: float=5.0, corr_cutoff: float=.75,
-                 pval_cutoff: float=1.0, too_good_to_be_true: float=.99):
+    def __init__(self, vif_cutoff: t.Optional[float]=5.0,
+            corr_cutoff: t.Optional[float]=.75,
+            pval_cutoff: t.Optional[float]=1.0,
+            too_good_to_be_true: t.Optional[float]=.99):
         self.vif_cutoff = vif_cutoff
         super().__init__(corr_cutoff, pval_cutoff, too_good_to_be_true)
         
@@ -432,7 +442,7 @@ class VIFSelector(CorrBasedSelectorMixin):
         return df.corr('pearson')
     
     def rank(self, X: pd.DataFrame, y: pd.Series,
-             apply_cutoffs: bool=True) -> pd.DataFrame:
+             apply_cutoffs: t.Optional[bool]=True) -> pd.DataFrame:
         ''' Ranks attributes (columns) in X according to its correlation with
             the target y. It uses Pearson's correlation coefficient
             
@@ -484,7 +494,9 @@ class VIFSelector(CorrBasedSelectorMixin):
         return metrics.vif(X).max() < self.vif_cutoff
     
     def fit(self, X: pd.DataFrame, y: pd.Series,
-            apply_cutoffs: bool=True, ranking: list=None) -> pd.DataFrame:
+            apply_cutoffs: t.Optional[bool]=True,
+            ranking: t.Union[t.List[str], t.Tuple[str, ...]]=None
+            ) -> pd.DataFrame:
         ''' Applies VIF-based feature selection for a attribute
             matrix X and a response vector y
             
@@ -503,12 +515,12 @@ class VIFSelector(CorrBasedSelectorMixin):
                 ranking. See the documentation on the class attributes for
                 more information on these
             
-            ranking: list of str, default None
-                List of variable names that will be used as a ranking. When
-                doing the filtering, this method will always drop the variable
-                in the pair that comes AFTER the other one in this list. This
-                means that the first item of this list should be the most
-                important variable (ranked 1), the second should be the
+            ranking: Union[List[str], Tuple[str, ...]], default None
+                List or tuple of variable names that will be used as a ranking. 
+                When doing the filtering, this method will always drop the 
+                variable in the pair that comes AFTER the other one in this 
+                list. This means that the first item of this list should be the 
+                most important variable (ranked 1), the second should be the
                 second most important variable (ranked 2) and so on. If no
                 such list is provided, one is created using the `rank` method
                 of this class
@@ -547,8 +559,8 @@ class LowVarianceSelector:
             variable is considered as proof of low variance
     '''
     
-    def __init__(self, pct_distinct_cutoff: float=.10,
-                 freq_ratio_cutoff: float=20.0):
+    def __init__(self, pct_distinct_cutoff: t.Optional[float]=0.1,
+            freq_ratio_cutoff: t.Optional[float]=20.0):
         self.pct_distinct_cutoff = pct_distinct_cutoff
         self.freq_ratio_cutoff = freq_ratio_cutoff
         
@@ -600,7 +612,8 @@ class LowVarianceSelector:
             
         return pd.Series(freq_ratio_, name='freq_ratio')
         
-    def rank(self, X: pd.DataFrame, apply_cutoffs: bool=False) -> pd.DataFrame:
+    def rank(self, X: pd.DataFrame, apply_cutoffs: t.Optional[bool]=False
+            ) -> pd.DataFrame:
         ''' Creates a ranking of low variance variables, from the ones with
             least variance to the ones with most variance. Therefore, the
             variable with rank equals to 1 is the variable with least variance
@@ -644,7 +657,7 @@ class LowVarianceSelector:
         
         return df
         
-def nan_pct(df: pd.DataFrame, ascending: bool=False):
+def nan_pct(df: pd.DataFrame, ascending: t.Optional[bool]=False):
     ''' Shows feature names and their corresponding percentage of missing
         values
 

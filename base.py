@@ -4,6 +4,7 @@
 Base classes for the package
 """
 
+import typing as t
 import numpy as np
 import pandas as pd
 from pyoneer import guards
@@ -34,14 +35,15 @@ class CorrBasedSelectorMixin:
             the target
     '''
     
-    def __init__(self, corr_cutoff: float=.75, pval_cutoff: float=1.0,
-                 too_good_to_be_true: float=.99):
+    def __init__(self, corr_cutoff: t.Optional[float]=.75,
+            pval_cutoff: t.Optional[float]=1.0,
+            too_good_to_be_true: t.Optional[float]=.99):
         self.corr_cutoff = float(corr_cutoff)
         self.pval_cutoff = float(pval_cutoff)
         self.too_good_to_be_true = float(too_good_to_be_true)
 
     def rank(self, X: pd.DataFrame, y: pd.Series,
-             apply_cutoffs: bool=True) -> pd.DataFrame:
+            apply_cutoffs: t.Optional[bool]=True) -> pd.DataFrame:
         ''' Ranks attributes (columns) in X according to its correlation with
             the target y
             
@@ -97,7 +99,8 @@ class CorrBasedSelectorMixin:
     
     @staticmethod
     def filter(X: pd.DataFrame, corr: pd.DataFrame,
-               cutoff: float, ranking: list) -> pd.DataFrame:
+               cutoff: float, ranking: t.Union[t.List[str], t.Tuple[str, ...]]
+               ) -> pd.DataFrame:
         ''' Applies the correlation cut-off to X, according to the correlations
             calculated in the correlation matrix corr. It uses a ordered list
             of feature names to start the cutting from the most important
@@ -123,12 +126,12 @@ class CorrBasedSelectorMixin:
                 Correlation above which the pair of variables are considered
                 to be pathologically correlated
                 
-            ranking: list
-                List of variable names that will be used as a ranking. When
-                doing the filtering, this method will always drop the variable
-                in the pair that comes AFTER the other one in this list. This
-                means that the first item of this list should be the most
-                important variable (ranked 1), the second should be the
+            ranking: Union[List[str], Tuple[str, ...]]
+                List or tuple of variable names that will be used as a ranking. 
+                When doing the filtering, this method will always drop the 
+                variable in the pair that comes AFTER the other one in this 
+                list. This means that the first item of this list should be the 
+                most important variable (ranked 1), the second should be the
                 second most important variable (ranked 2) and so on
                 
             Returns
@@ -170,8 +173,10 @@ class CorrBasedSelectorMixin:
         
         return self.corr(X).abs().max().max() < self.corr_cutoff
     
-    def fit(self, X: pd.DataFrame, y: pd.Series, apply_cutoffs: bool=True,
-            ranking: list=None) -> pd.DataFrame:
+    def fit(self, X: pd.DataFrame, y: pd.Series,
+            apply_cutoffs: t.Optional[bool]=True,
+            ranking: t.Optional[t.Union[t.List[str], t.Tuple[str, ...]]]=None
+            ) -> pd.DataFrame:
         ''' Applies correlation-based feature selection for a attribute
             matrix X and a response vector y
             
@@ -190,12 +195,12 @@ class CorrBasedSelectorMixin:
                 ranking. See the documentation on the class attributes for
                 more information on these
             
-            ranking: list of str, default None
-                List of variable names that will be used as a ranking. When
-                doing the filtering, this method will always drop the variable
-                in the pair that comes AFTER the other one in this list. This
-                means that the first item of this list should be the most
-                important variable (ranked 1), the second should be the
+            ranking: Union[List[str], Tuple[str, ...]], default None
+                List or tuple of variable names that will be used as a ranking. 
+                When doing the filtering, this method will always drop the 
+                variable in the pair that comes AFTER the other one in this 
+                list. This means that the first item of this list should be the 
+                most important variable (ranked 1), the second should be the
                 second most important variable (ranked 2) and so on. If no
                 such list is provided, one is created using the `rank` method
                 of this class
